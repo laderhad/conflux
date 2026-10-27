@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="src/Conflux.Api/Conflux.Api.csproj" />
+  <Project Path="src/Conflux.Modules.Workspaces/Conflux.Modules.Workspaces.csproj" />
+  <Project Path="tests/Conflux.IntegrationTests/Conflux.IntegrationTests.csproj" />
+</Solution>
