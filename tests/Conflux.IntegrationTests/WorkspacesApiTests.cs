@@ -8,6 +8,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Testcontainers.PostgreSql;
+using Xunit;
 
 namespace Conflux.IntegrationTests;
 
@@ -71,16 +72,23 @@ public sealed class WorkspacesApiTests(PostgresFixture fixture) : IClassFixture<
     }
 
     [Fact]
-    public async Task List_orders_newest_first()
+    public async Task List_orders_newest_first_and_uses_id_as_tie_breaker()
     {
         var first = (await (await fixture.Client.PostAsJsonAsync("/api/workspaces", new { name = "First" }))
             .Content.ReadFromJsonAsync<WorkspaceDto>())!;
-        await Task.Delay(10);
         var second = (await (await fixture.Client.PostAsJsonAsync("/api/workspaces", new { name = "Second" }))
             .Content.ReadFromJsonAsync<WorkspaceDto>())!;
+        var older = (await (await fixture.Client.PostAsJsonAsync("/api/workspaces", new { name = "Older" }))
+            .Content.ReadFromJsonAsync<WorkspaceDto>())!;
+
+        var recentDate = new DateTimeOffset(2025, 1, 2, 0, 0, 0, TimeSpan.Zero);
+        await fixture.SetCreatedAtAsync(first.Id, recentDate);
+        await fixture.SetCreatedAtAsync(second.Id, recentDate);
+        await fixture.SetCreatedAtAsync(older.Id, recentDate.AddDays(-1));
 
         var list = (await fixture.Client.GetFromJsonAsync<WorkspaceDto[]>("/api/workspaces"))!;
-        Assert.Equal([second.Id, first.Id], list.Select(item => item.Id));
+        var expectedIds = new[] { first.Id, second.Id }.OrderBy(id => id).Append(older.Id);
+        Assert.Equal(expectedIds, list.Select(item => item.Id));
     }
 
     [Fact]
@@ -104,8 +112,7 @@ public sealed class WorkspacesApiTests(PostgresFixture fixture) : IClassFixture<
 
 public sealed class PostgresFixture : IAsyncLifetime
 {
-    private readonly PostgreSqlContainer _database = new PostgreSqlBuilder()
-        .WithImage("postgres:17-alpine")
+    private readonly PostgreSqlContainer _database = new PostgreSqlBuilder("postgres:17-alpine")
         .Build();
     private WebApplicationFactory<Program> _factory = null!;
 
@@ -132,6 +139,14 @@ public sealed class PostgresFixture : IAsyncLifetime
         using var scope = _factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<WorkspacesDbContext>();
         await db.Database.ExecuteSqlRawAsync("TRUNCATE TABLE workspaces.workspaces");
+    }
+
+    public async Task SetCreatedAtAsync(Guid id, DateTimeOffset createdAtUtc)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<WorkspacesDbContext>();
+        await db.Workspaces.Where(workspace => workspace.Id == id)
+            .ExecuteUpdateAsync(update => update.SetProperty(workspace => workspace.CreatedAtUtc, createdAtUtc));
     }
 
     public async Task DisposeAsync()
