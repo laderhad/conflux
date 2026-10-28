@@ -27,14 +27,22 @@ Conflux is a learning-focused collaborative workspace. Task 001 provides a first
    export ConnectionStrings__Workspaces="Host=localhost;Port=5432;Database=conflux;Username=conflux;Password=${POSTGRES_PASSWORD}"
    ```
 
-4. Apply the Workspaces migration, then run the API:
+4. If this database already had the Task 001 migration applied before the migration history table moved into the `workspaces` schema, move that existing history table once before applying migrations:
+
+   ```sh
+   docker compose exec -T postgres psql -U conflux -d conflux -c 'ALTER TABLE public."__EFMigrationsHistory" SET SCHEMA workspaces;'
+   ```
+
+   Skip this command for a fresh database or one that already has `workspaces."__EFMigrationsHistory"`. Do not run it against a database shared with other EF Core modules.
+
+5. Apply the Workspaces migration, then run the API:
 
    ```sh
    dotnet ef database update --project src/Conflux.Modules.Workspaces --startup-project src/Conflux.Api --context WorkspacesDbContext
    dotnet run --project src/Conflux.Api --launch-profile http
    ```
 
-5. In another shell, start the frontend:
+6. In another shell, start the frontend:
 
    ```sh
    cd frontend
@@ -42,7 +50,7 @@ Conflux is a learning-focused collaborative workspace. Task 001 provides a first
    npm run dev
    ```
 
-Open `http://localhost:5173`. Vite proxies `/api` to the API at `http://localhost:5080`. For a separately hosted frontend, set `VITE_API_BASE_URL` to the API origin when building it. The API allows requests from `http://localhost:5173` during local development.
+Open `http://localhost:5173`. Vite proxies `/api` to the API at `http://localhost:5080`. For a separately hosted frontend, set `VITE_API_BASE_URL` to the API origin when building it and configure the API's `Cors__AllowedOrigins__0` to the frontend origin. Development defaults to `http://localhost:5173`; production has no default allowed origin.
 
 `GET /health` reports that the API host is running. It does not test PostgreSQL connectivity.
 
@@ -52,7 +60,7 @@ With Docker running:
 
 ```sh
 dotnet test tests/Conflux.IntegrationTests/Conflux.IntegrationTests.csproj
-cd frontend && npm run build
+cd frontend && npm test && npm run build
 ```
 
 The integration tests start a disposable PostgreSQL container and apply migrations. To check local persistence manually, create a workspace named `Engineering`, reload the page, then restart Compose with `docker compose down` followed by `docker compose up -d`. The named PostgreSQL volume remains in place. A whitespace-only name should return validation details and leave the list unchanged.
@@ -61,7 +69,7 @@ The integration tests start a disposable PostgreSQL container and apply migratio
 
 - `src/Conflux.Api`: host, OpenAPI setup, CORS, and host health endpoint.
 - `src/Conflux.Modules.Workspaces`: Workspaces domain rule, create/list slices, DbContext, and migration in the `workspaces` schema.
-- `tests/Conflux.IntegrationTests`: API-level tests against PostgreSQL via Testcontainers.
+- `tests/Conflux.IntegrationTests`: API-level PostgreSQL tests and focused domain tests.
 - `frontend`: React and TypeScript client.
 - `docs/tasks/001-workspaces-first-slice.md`: feature acceptance criteria.
 - `docs/adr/0001-modular-monolith-vertical-slices.md`: architecture decision.

@@ -11,7 +11,8 @@ public sealed class WorkspacesDbContextFactory : IDesignTimeDbContextFactory<Wor
             ?? throw new InvalidOperationException("ConnectionStrings__Workspaces is required for migrations.");
 
         var options = new DbContextOptionsBuilder<WorkspacesDbContext>()
-            .UseNpgsql(connectionString)
+            .UseNpgsql(connectionString,
+                npgsql => npgsql.MigrationsHistoryTable("__EFMigrationsHistory", "workspaces"))
             .Options;
         return new WorkspacesDbContext(options);
     }

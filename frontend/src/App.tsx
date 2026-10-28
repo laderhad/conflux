@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 
 type Workspace = {
   id: string
@@ -19,23 +19,29 @@ export default function App() {
   const [listError, setListError] = useState('')
   const [formError, setFormError] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const latestListRequest = useRef(0)
 
   async function loadWorkspaces() {
+    const requestId = ++latestListRequest.current
     setLoading(true)
     setListError('')
     try {
       const response = await fetch(`${apiBaseUrl}/api/workspaces`)
       if (!response.ok) throw new Error('Could not load workspaces.')
-      setWorkspaces((await response.json()) as Workspace[])
+      const items = (await response.json()) as Workspace[]
+      if (requestId === latestListRequest.current) setWorkspaces(items)
     } catch {
-      setListError('Could not load workspaces. Try refreshing the page.')
+      if (requestId === latestListRequest.current) {
+        setListError('Could not load workspaces. Try refreshing the page.')
+      }
     } finally {
-      setLoading(false)
+      if (requestId === latestListRequest.current) setLoading(false)
     }
   }
 
   useEffect(() => {
     void loadWorkspaces()
+    return () => { latestListRequest.current++ }
   }, [])
 
   async function createWorkspace(event: FormEvent<HTMLFormElement>) {

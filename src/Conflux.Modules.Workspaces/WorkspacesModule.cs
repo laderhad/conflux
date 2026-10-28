@@ -16,7 +16,8 @@ public static class WorkspacesModule
         var connectionString = configuration.GetConnectionString("Workspaces")
             ?? throw new InvalidOperationException("ConnectionStrings:Workspaces is required.");
 
-        services.AddDbContext<WorkspacesDbContext>(options => options.UseNpgsql(connectionString));
+        services.AddDbContext<WorkspacesDbContext>(options => options.UseNpgsql(connectionString,
+            npgsql => npgsql.MigrationsHistoryTable("__EFMigrationsHistory", "workspaces")));
         return services;
     }
 

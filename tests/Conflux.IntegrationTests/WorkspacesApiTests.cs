@@ -5,8 +5,8 @@ using Conflux.Modules.Workspaces.Persistence;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Npgsql;
 using Testcontainers.PostgreSql;
 using Xunit;
 
@@ -99,6 +99,34 @@ public sealed class WorkspacesApiTests(PostgresFixture fixture) : IClassFixture<
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 
+    [Theory]
+    [InlineData("http://frontend.test", true)]
+    [InlineData("http://other.test", false)]
+    public async Task Cors_allows_only_the_configured_frontend_origin(string origin, bool allowed)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Options, "/api/workspaces");
+        request.Headers.Add("Origin", origin);
+        request.Headers.Add("Access-Control-Request-Method", "GET");
+
+        var response = await fixture.Client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.Equal(allowed, response.Headers.TryGetValues("Access-Control-Allow-Origin", out var origins));
+        if (allowed) Assert.Equal(origin, Assert.Single(origins!));
+    }
+
+    [Fact]
+    public async Task Migration_history_is_owned_by_the_workspaces_schema()
+    {
+        await using var connection = new NpgsqlConnection(fixture.ConnectionString);
+        await connection.OpenAsync();
+        await using var command = new NpgsqlCommand(
+            "SELECT to_regclass('workspaces.\"__EFMigrationsHistory\"') IS NOT NULL " +
+            "AND to_regclass('public.\"__EFMigrationsHistory\"') IS NULL", connection);
+
+        Assert.Equal(true, await command.ExecuteScalarAsync());
+    }
+
     private static async Task AssertValidationProblem(HttpResponseMessage response)
     {
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
@@ -117,16 +145,16 @@ public sealed class PostgresFixture : IAsyncLifetime
     private WebApplicationFactory<Program> _factory = null!;
 
     public HttpClient Client { get; private set; } = null!;
+    public string ConnectionString => _database.GetConnectionString();
 
     public async Task InitializeAsync()
     {
         await _database.StartAsync();
         _factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
-            builder.ConfigureAppConfiguration((_, configuration) =>
-                configuration.AddInMemoryCollection(new Dictionary<string, string?>
-                {
-                    ["ConnectionStrings:Workspaces"] = _database.GetConnectionString()
-                })));
+        {
+            builder.UseSetting("ConnectionStrings:Workspaces", ConnectionString);
+            builder.UseSetting("Cors:AllowedOrigins:0", "http://frontend.test");
+        });
         Client = _factory.CreateClient();
 
         using var scope = _factory.Services.CreateScope();

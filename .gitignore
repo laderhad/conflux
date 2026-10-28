@@ -13,6 +13,7 @@
 *.suo
 *.tsbuildinfo
 **/.vite/
+**/.vitest/
 
 # Local configuration and secrets
 .env
