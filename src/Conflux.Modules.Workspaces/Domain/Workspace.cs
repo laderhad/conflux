@@ -2,6 +2,8 @@ namespace Conflux.Modules.Workspaces.Domain;
 
 public sealed class Workspace
 {
+    private const string InvalidNameMessage = "Name must be between 3 and 80 characters after trimming.";
+
     private Workspace() { }
 
     private Workspace(string name)
@@ -17,16 +19,34 @@ public sealed class Workspace
 
     public static bool TryCreate(string? name, out Workspace? workspace, out string? error)
     {
-        var trimmed = name?.Trim();
-        if (string.IsNullOrWhiteSpace(trimmed) || trimmed.Length is < 3 or > 80)
+        if (!TryNormalizeName(name, out var normalizedName))
         {
             workspace = null;
-            error = "Name must be between 3 and 80 characters after trimming.";
+            error = InvalidNameMessage;
             return false;
         }
 
-        workspace = new Workspace(trimmed);
+        workspace = new Workspace(normalizedName!);
         error = null;
         return true;
+    }
+
+    public bool TryRename(string? name, out string? error)
+    {
+        if (!TryNormalizeName(name, out var normalizedName))
+        {
+            error = InvalidNameMessage;
+            return false;
+        }
+
+        Name = normalizedName!;
+        error = null;
+        return true;
+    }
+
+    private static bool TryNormalizeName(string? name, out string? normalizedName)
+    {
+        normalizedName = name?.Trim();
+        return !string.IsNullOrWhiteSpace(normalizedName) && normalizedName.Length is >= 3 and <= 80;
     }
 }

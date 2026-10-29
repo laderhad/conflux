@@ -92,6 +92,76 @@ public sealed class WorkspacesApiTests(PostgresFixture fixture) : IClassFixture<
     }
 
     [Fact]
+    public async Task Rename_trims_name_and_persists_it()
+    {
+        var created = (await (await fixture.Client.PostAsJsonAsync("/api/workspaces", new { name = "Engineering" }))
+            .Content.ReadFromJsonAsync<WorkspaceDto>())!;
+
+        var response = await fixture.Client.PatchAsJsonAsync($"/api/workspaces/{created.Id}", new { name = "  Platform  " });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var renamed = (await response.Content.ReadFromJsonAsync<WorkspaceDto>())!;
+        Assert.Equal(created with { Name = "Platform" }, renamed);
+        var list = (await fixture.Client.GetFromJsonAsync<WorkspaceDto[]>("/api/workspaces"))!;
+        Assert.Equal(renamed, Assert.Single(list));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("   ")]
+    [InlineData(" ab ")]
+    public async Task Invalid_rename_returns_validation_problem_and_preserves_name(string? name)
+    {
+        var created = (await (await fixture.Client.PostAsJsonAsync("/api/workspaces", new { name = "Engineering" }))
+            .Content.ReadFromJsonAsync<WorkspaceDto>())!;
+
+        var response = await fixture.Client.PatchAsJsonAsync($"/api/workspaces/{created.Id}", new { name });
+
+        await AssertValidationProblem(response);
+        var list = (await fixture.Client.GetFromJsonAsync<WorkspaceDto[]>("/api/workspaces"))!;
+        Assert.Equal(created, Assert.Single(list));
+    }
+
+    [Fact]
+    public async Task Too_long_rename_is_rejected()
+    {
+        var created = (await (await fixture.Client.PostAsJsonAsync("/api/workspaces", new { name = "Engineering" }))
+            .Content.ReadFromJsonAsync<WorkspaceDto>())!;
+
+        var response = await fixture.Client.PatchAsJsonAsync($"/api/workspaces/{created.Id}", new { name = new string('x', 81) });
+
+        await AssertValidationProblem(response);
+    }
+
+    [Fact]
+    public async Task Rename_without_name_returns_validation_problem()
+    {
+        var created = (await (await fixture.Client.PostAsJsonAsync("/api/workspaces", new { name = "Engineering" }))
+            .Content.ReadFromJsonAsync<WorkspaceDto>())!;
+
+        var response = await fixture.Client.PatchAsJsonAsync($"/api/workspaces/{created.Id}", new { });
+
+        await AssertValidationProblem(response);
+        Assert.Equal(created, Assert.Single((await fixture.Client.GetFromJsonAsync<WorkspaceDto[]>("/api/workspaces"))!));
+    }
+
+    [Fact]
+    public async Task Rename_unknown_workspace_returns_not_found()
+    {
+        var response = await fixture.Client.PatchAsJsonAsync($"/api/workspaces/{Guid.NewGuid()}", new { name = "Platform" });
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Rename_with_malformed_id_does_not_match_route()
+    {
+        var response = await fixture.Client.PatchAsJsonAsync("/api/workspaces/not-a-guid", new { name = "Platform" });
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
     public async Task Health_reports_host_availability()
     {
         var response = await fixture.Client.GetAsync("/health");
