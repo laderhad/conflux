@@ -4,6 +4,7 @@ type Workspace = {
   id: string
   name: string
   createdAtUtc: string
+  version: number
 }
 
 type ValidationProblem = {
@@ -20,8 +21,10 @@ export default function App() {
   const [formError, setFormError] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
+  const [editingVersion, setEditingVersion] = useState<number | null>(null)
   const [draftName, setDraftName] = useState('')
   const [editError, setEditError] = useState('')
+  const [conflictMessage, setConflictMessage] = useState('')
   const [renaming, setRenaming] = useState(false)
   const latestListRequest = useRef(0)
 
@@ -51,6 +54,7 @@ export default function App() {
   async function createWorkspace(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setFormError('')
+    setConflictMessage('')
     setSubmitting(true)
     try {
       const response = await fetch(`${apiBaseUrl}/api/workspaces`, {
@@ -75,22 +79,30 @@ export default function App() {
 
   async function renameWorkspace(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (editingId === null) return
+    if (editingId === null || editingVersion === null) return
     setEditError('')
     setRenaming(true)
     try {
       const response = await fetch(`${apiBaseUrl}/api/workspaces/${editingId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: draftName }),
+        body: JSON.stringify({ name: draftName, expectedVersion: editingVersion }),
       })
       if (response.status === 400) {
         const problem = (await response.json()) as ValidationProblem
         setEditError(problem.errors?.name?.[0] ?? 'Enter a valid workspace name.')
         return
       }
+      if (response.status === 409) {
+        setEditingId(null)
+        setEditingVersion(null)
+        await loadWorkspaces()
+        setConflictMessage('This workspace changed elsewhere. Review its current name and try again.')
+        return
+      }
       if (!response.ok) throw new Error('Could not rename workspace.')
       setEditingId(null)
+      setEditingVersion(null)
       await loadWorkspaces()
     } catch {
       setEditError('Could not rename workspace. Please try again.')
@@ -130,6 +142,7 @@ export default function App() {
 
       <section aria-labelledby="list-heading" className="panel">
         <h2 id="list-heading">Your workspaces</h2>
+        {conflictMessage && <p className="error" role="alert">{conflictMessage}</p>}
         {loading ? (
           <p role="status">Loading workspaces…</p>
         ) : listError ? (
@@ -152,17 +165,22 @@ export default function App() {
                         aria-describedby={editError ? 'rename-error' : undefined}
                       />
                       <button disabled={renaming} type="submit">{renaming ? 'Saving…' : 'Save'}</button>
-                      <button disabled={renaming} type="button" onClick={() => setEditingId(null)}>Cancel</button>
+                      <button disabled={renaming} type="button" onClick={() => {
+                        setEditingId(null)
+                        setEditingVersion(null)
+                      }}>Cancel</button>
                     </div>
                     {editError && <p id="rename-error" className="error" role="alert">{editError}</p>}
                   </form>
                 ) : (
                   <>
                     <strong>{workspace.name}</strong>
-                    <button type="button" onClick={() => {
+                    <button disabled={renaming} type="button" onClick={() => {
                       setEditingId(workspace.id)
+                      setEditingVersion(workspace.version)
                       setDraftName(workspace.name)
                       setEditError('')
+                      setConflictMessage('')
                     }}>Rename {workspace.name}</button>
                   </>
                 )}

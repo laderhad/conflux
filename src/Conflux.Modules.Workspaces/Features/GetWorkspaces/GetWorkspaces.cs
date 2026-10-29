@@ -16,7 +16,7 @@ internal static class GetWorkspaces
                 .AsNoTracking()
                 .OrderByDescending(workspace => workspace.CreatedAtUtc)
                 .ThenBy(workspace => workspace.Id)
-                .Select(workspace => new WorkspaceListItem(workspace.Id, workspace.Name, workspace.CreatedAtUtc))
+                .Select(workspace => new WorkspaceListItem(workspace.Id, workspace.Name, workspace.CreatedAtUtc, workspace.Version))
                 .ToListAsync(cancellationToken);
 
             return Results.Ok(workspaces);
@@ -24,4 +24,4 @@ internal static class GetWorkspaces
     }
 }
 
-internal sealed record WorkspaceListItem(Guid Id, string Name, DateTimeOffset CreatedAtUtc);
+internal sealed record WorkspaceListItem(Guid Id, string Name, DateTimeOffset CreatedAtUtc, long Version);

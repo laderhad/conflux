@@ -16,6 +16,14 @@ internal static class RenameWorkspace
             var workspace = await db.Workspaces.SingleOrDefaultAsync(item => item.Id == id, cancellationToken);
             if (workspace is null) return Results.NotFound();
 
+            if (request.ExpectedVersion is null or <= 0)
+            {
+                return Results.ValidationProblem(new Dictionary<string, string[]>
+                {
+                    ["expectedVersion"] = ["Expected version must be a positive number."]
+                });
+            }
+
             if (!workspace.TryRename(request.Name, out var error))
             {
                 return Results.ValidationProblem(new Dictionary<string, string[]>
@@ -24,11 +32,20 @@ internal static class RenameWorkspace
                 });
             }
 
-            await db.SaveChangesAsync(cancellationToken);
-            return Results.Ok(new RenameWorkspaceResponse(workspace.Id, workspace.Name, workspace.CreatedAtUtc));
+            db.Entry(workspace).Property(item => item.Version).OriginalValue = request.ExpectedVersion.Value;
+            try
+            {
+                await db.SaveChangesAsync(cancellationToken);
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                return Results.Conflict();
+            }
+
+            return Results.Ok(new RenameWorkspaceResponse(workspace.Id, workspace.Name, workspace.CreatedAtUtc, workspace.Version));
         });
     }
 }
 
-internal sealed record RenameWorkspaceRequest(string? Name);
-internal sealed record RenameWorkspaceResponse(Guid Id, string Name, DateTimeOffset CreatedAtUtc);
+internal sealed record RenameWorkspaceRequest(string? Name, long? ExpectedVersion);
+internal sealed record RenameWorkspaceResponse(Guid Id, string Name, DateTimeOffset CreatedAtUtc, long Version);

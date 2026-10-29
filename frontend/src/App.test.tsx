@@ -37,7 +37,7 @@ test.each(['empty result', 'network error'])(
       if (init?.method === 'POST') return jsonResponse({}, 201)
       getCount++
       if (getCount === 1) return initialGet.promise
-      return jsonResponse([{ id: 'workspace-1', name: 'Engineering', createdAtUtc: '2026-10-28T00:00:00Z' }])
+      return jsonResponse([{ id: 'workspace-1', name: 'Engineering', createdAtUtc: '2026-10-28T00:00:00Z', version: 1 }])
     })
     vi.stubGlobal('fetch', fetchMock)
 
@@ -60,12 +60,13 @@ test.each(['empty result', 'network error'])(
 test('renaming a workspace sends PATCH and refreshes the list', async () => {
   let getCount = 0
   const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
-    if (init?.method === 'PATCH') return jsonResponse({ id: 'workspace-1', name: 'Platform' })
+    if (init?.method === 'PATCH') return jsonResponse({ id: 'workspace-1', name: 'Platform', version: 2 })
     getCount++
     return jsonResponse([{
       id: 'workspace-1',
       name: getCount === 1 ? 'Engineering' : 'Platform',
       createdAtUtc: '2026-10-28T00:00:00Z',
+      version: getCount === 1 ? 1 : 2,
     }])
   })
   vi.stubGlobal('fetch', fetchMock)
@@ -78,7 +79,7 @@ test('renaming a workspace sends PATCH and refreshes the list', async () => {
   await screen.findByRole('button', { name: 'Rename Platform' })
   expect(fetchMock).toHaveBeenCalledWith('/api/workspaces/workspace-1', expect.objectContaining({
     method: 'PATCH',
-    body: JSON.stringify({ name: '  Platform  ' }),
+    body: JSON.stringify({ name: '  Platform  ', expectedVersion: 1 }),
   }))
   expect(getCount).toBe(2)
 })
@@ -88,7 +89,7 @@ test('a rename validation error keeps the editor open and the old name visible',
     if (init?.method === 'PATCH') {
       return jsonResponse({ errors: { name: ['Name must be between 3 and 80 characters after trimming.'] } }, 400)
     }
-    return jsonResponse([{ id: 'workspace-1', name: 'Engineering', createdAtUtc: '2026-10-28T00:00:00Z' }])
+    return jsonResponse([{ id: 'workspace-1', name: 'Engineering', createdAtUtc: '2026-10-28T00:00:00Z', version: 1 }])
   })
   vi.stubGlobal('fetch', fetchMock)
 
@@ -105,7 +106,7 @@ test('a rename validation error keeps the editor open and the old name visible',
 test('a rename request failure shows an error and keeps the draft', async () => {
   const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
     if (init?.method === 'PATCH') return jsonResponse({}, 500)
-    return jsonResponse([{ id: 'workspace-1', name: 'Engineering', createdAtUtc: '2026-10-28T00:00:00Z' }])
+    return jsonResponse([{ id: 'workspace-1', name: 'Engineering', createdAtUtc: '2026-10-28T00:00:00Z', version: 1 }])
   })
   vi.stubGlobal('fetch', fetchMock)
 
@@ -116,4 +117,33 @@ test('a rename request failure shows an error and keeps the draft', async () => 
 
   await screen.findByText('Could not rename workspace. Please try again.')
   expect((screen.getByLabelText('Workspace name') as HTMLInputElement).value).toBe('Platform')
+})
+
+test('a version conflict refreshes the current name and closes the editor', async () => {
+  let getCount = 0
+  const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+    if (init?.method === 'PATCH') return jsonResponse({}, 409)
+    getCount++
+    return jsonResponse([{
+      id: 'workspace-1',
+      name: getCount === 1 ? 'Engineering' : 'Platform',
+      createdAtUtc: '2026-10-28T00:00:00Z',
+      version: getCount === 1 ? 1 : 2,
+    }])
+  })
+  vi.stubGlobal('fetch', fetchMock)
+
+  render(<App />)
+  fireEvent.click(await screen.findByRole('button', { name: 'Rename Engineering' }))
+  fireEvent.change(screen.getByLabelText('Workspace name'), { target: { value: 'Design' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+  await screen.findByRole('button', { name: 'Rename Platform' })
+  expect(screen.getByText('This workspace changed elsewhere. Review its current name and try again.')).toBeTruthy()
+  expect(screen.queryByLabelText('Workspace name')).toBeNull()
+  expect(fetchMock).toHaveBeenCalledWith('/api/workspaces/workspace-1', expect.objectContaining({
+    method: 'PATCH',
+    body: JSON.stringify({ name: 'Design', expectedVersion: 1 }),
+  }))
+  expect(getCount).toBe(2)
 })

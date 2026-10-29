@@ -16,6 +16,7 @@ public sealed class WorkspacesDbContext(DbContextOptions<WorkspacesDbContext> op
             entity.HasKey(workspace => workspace.Id);
             entity.Property(workspace => workspace.Name).HasMaxLength(80).IsRequired();
             entity.Property(workspace => workspace.CreatedAtUtc).IsRequired();
+            entity.Property(workspace => workspace.Version).HasDefaultValue(1L).IsConcurrencyToken();
             entity.HasIndex(workspace => new { workspace.CreatedAtUtc, workspace.Id });
         });
     }

@@ -36,6 +36,7 @@ public sealed class WorkspacesApiTests(PostgresFixture fixture) : IClassFixture<
         Assert.NotEqual(Guid.Empty, created.Id);
         Assert.Equal("Engineering", created.Name);
         Assert.Equal(TimeSpan.Zero, created.CreatedAtUtc.Offset);
+        Assert.Equal(1, created.Version);
 
         var list = (await fixture.Client.GetFromJsonAsync<WorkspaceDto[]>("/api/workspaces"))!;
         Assert.Single(list);
@@ -97,11 +98,11 @@ public sealed class WorkspacesApiTests(PostgresFixture fixture) : IClassFixture<
         var created = (await (await fixture.Client.PostAsJsonAsync("/api/workspaces", new { name = "Engineering" }))
             .Content.ReadFromJsonAsync<WorkspaceDto>())!;
 
-        var response = await fixture.Client.PatchAsJsonAsync($"/api/workspaces/{created.Id}", new { name = "  Platform  " });
+        var response = await fixture.Client.PatchAsJsonAsync($"/api/workspaces/{created.Id}", new { name = "  Platform  ", expectedVersion = created.Version });
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var renamed = (await response.Content.ReadFromJsonAsync<WorkspaceDto>())!;
-        Assert.Equal(created with { Name = "Platform" }, renamed);
+        Assert.Equal(created with { Name = "Platform", Version = created.Version + 1 }, renamed);
         var list = (await fixture.Client.GetFromJsonAsync<WorkspaceDto[]>("/api/workspaces"))!;
         Assert.Equal(renamed, Assert.Single(list));
     }
@@ -115,7 +116,7 @@ public sealed class WorkspacesApiTests(PostgresFixture fixture) : IClassFixture<
         var created = (await (await fixture.Client.PostAsJsonAsync("/api/workspaces", new { name = "Engineering" }))
             .Content.ReadFromJsonAsync<WorkspaceDto>())!;
 
-        var response = await fixture.Client.PatchAsJsonAsync($"/api/workspaces/{created.Id}", new { name });
+        var response = await fixture.Client.PatchAsJsonAsync($"/api/workspaces/{created.Id}", new { name, expectedVersion = created.Version });
 
         await AssertValidationProblem(response);
         var list = (await fixture.Client.GetFromJsonAsync<WorkspaceDto[]>("/api/workspaces"))!;
@@ -128,7 +129,7 @@ public sealed class WorkspacesApiTests(PostgresFixture fixture) : IClassFixture<
         var created = (await (await fixture.Client.PostAsJsonAsync("/api/workspaces", new { name = "Engineering" }))
             .Content.ReadFromJsonAsync<WorkspaceDto>())!;
 
-        var response = await fixture.Client.PatchAsJsonAsync($"/api/workspaces/{created.Id}", new { name = new string('x', 81) });
+        var response = await fixture.Client.PatchAsJsonAsync($"/api/workspaces/{created.Id}", new { name = new string('x', 81), expectedVersion = created.Version });
 
         await AssertValidationProblem(response);
     }
@@ -139,7 +140,7 @@ public sealed class WorkspacesApiTests(PostgresFixture fixture) : IClassFixture<
         var created = (await (await fixture.Client.PostAsJsonAsync("/api/workspaces", new { name = "Engineering" }))
             .Content.ReadFromJsonAsync<WorkspaceDto>())!;
 
-        var response = await fixture.Client.PatchAsJsonAsync($"/api/workspaces/{created.Id}", new { });
+        var response = await fixture.Client.PatchAsJsonAsync($"/api/workspaces/{created.Id}", new { expectedVersion = created.Version });
 
         await AssertValidationProblem(response);
         Assert.Equal(created, Assert.Single((await fixture.Client.GetFromJsonAsync<WorkspaceDto[]>("/api/workspaces"))!));
@@ -148,7 +149,7 @@ public sealed class WorkspacesApiTests(PostgresFixture fixture) : IClassFixture<
     [Fact]
     public async Task Rename_unknown_workspace_returns_not_found()
     {
-        var response = await fixture.Client.PatchAsJsonAsync($"/api/workspaces/{Guid.NewGuid()}", new { name = "Platform" });
+        var response = await fixture.Client.PatchAsJsonAsync($"/api/workspaces/{Guid.NewGuid()}", new { name = "Platform", expectedVersion = 1 });
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }
@@ -156,9 +157,68 @@ public sealed class WorkspacesApiTests(PostgresFixture fixture) : IClassFixture<
     [Fact]
     public async Task Rename_with_malformed_id_does_not_match_route()
     {
-        var response = await fixture.Client.PatchAsJsonAsync("/api/workspaces/not-a-guid", new { name = "Platform" });
+        var response = await fixture.Client.PatchAsJsonAsync("/api/workspaces/not-a-guid", new { name = "Platform", expectedVersion = 1 });
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData(0L)]
+    [InlineData(-1L)]
+    public async Task Missing_or_invalid_expected_version_returns_validation_problem(long? expectedVersion)
+    {
+        var created = (await (await fixture.Client.PostAsJsonAsync("/api/workspaces", new { name = "Engineering" }))
+            .Content.ReadFromJsonAsync<WorkspaceDto>())!;
+
+        var response = await fixture.Client.PatchAsJsonAsync($"/api/workspaces/{created.Id}", new { name = "Platform", expectedVersion });
+
+        await AssertValidationProblem(response, "expectedVersion");
+        Assert.Equal(created, Assert.Single((await fixture.Client.GetFromJsonAsync<WorkspaceDto[]>("/api/workspaces"))!));
+    }
+
+    [Fact]
+    public async Task Omitted_expected_version_returns_validation_problem()
+    {
+        var created = (await (await fixture.Client.PostAsJsonAsync("/api/workspaces", new { name = "Engineering" }))
+            .Content.ReadFromJsonAsync<WorkspaceDto>())!;
+
+        var response = await fixture.Client.PatchAsJsonAsync($"/api/workspaces/{created.Id}", new { name = "Platform" });
+
+        await AssertValidationProblem(response, "expectedVersion");
+    }
+
+    [Fact]
+    public async Task Stale_version_returns_conflict_without_overwriting_saved_name()
+    {
+        var created = (await (await fixture.Client.PostAsJsonAsync("/api/workspaces", new { name = "Engineering" }))
+            .Content.ReadFromJsonAsync<WorkspaceDto>())!;
+        var first = await fixture.Client.PatchAsJsonAsync($"/api/workspaces/{created.Id}", new { name = "Platform", expectedVersion = created.Version });
+
+        var stale = await fixture.Client.PatchAsJsonAsync($"/api/workspaces/{created.Id}", new { name = "Design", expectedVersion = created.Version });
+
+        Assert.Equal(HttpStatusCode.OK, first.StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, stale.StatusCode);
+        var saved = Assert.Single((await fixture.Client.GetFromJsonAsync<WorkspaceDto[]>("/api/workspaces"))!);
+        Assert.Equal("Platform", saved.Name);
+        Assert.Equal(created.Version + 1, saved.Version);
+    }
+
+    [Fact]
+    public async Task Competing_requests_with_the_same_version_allow_only_one_rename()
+    {
+        var created = (await (await fixture.Client.PostAsJsonAsync("/api/workspaces", new { name = "Engineering" }))
+            .Content.ReadFromJsonAsync<WorkspaceDto>())!;
+
+        var responses = await Task.WhenAll(
+            fixture.Client.PatchAsJsonAsync($"/api/workspaces/{created.Id}", new { name = "Platform", expectedVersion = created.Version }),
+            fixture.Client.PatchAsJsonAsync($"/api/workspaces/{created.Id}", new { name = "Design", expectedVersion = created.Version }));
+
+        Assert.Single(responses, response => response.StatusCode == HttpStatusCode.OK);
+        Assert.Single(responses, response => response.StatusCode == HttpStatusCode.Conflict);
+        var saved = Assert.Single((await fixture.Client.GetFromJsonAsync<WorkspaceDto[]>("/api/workspaces"))!);
+        Assert.Contains(saved.Name, new[] { "Platform", "Design" });
+        Assert.Equal(created.Version + 1, saved.Version);
     }
 
     [Fact]
@@ -197,15 +257,48 @@ public sealed class WorkspacesApiTests(PostgresFixture fixture) : IClassFixture<
         Assert.Equal(true, await command.ExecuteScalarAsync());
     }
 
-    private static async Task AssertValidationProblem(HttpResponseMessage response)
+    [Fact]
+    public async Task Version_migration_assigns_one_to_existing_workspaces()
+    {
+        await using var admin = new NpgsqlConnection(fixture.ConnectionString);
+        await admin.OpenAsync();
+        await using (var createDatabase = new NpgsqlCommand("CREATE DATABASE conflux_upgrade", admin))
+        {
+            await createDatabase.ExecuteNonQueryAsync();
+        }
+
+        var connectionString = new NpgsqlConnectionStringBuilder(fixture.ConnectionString)
+        {
+            Database = "conflux_upgrade"
+        }.ConnectionString;
+        var options = new DbContextOptionsBuilder<WorkspacesDbContext>()
+            .UseNpgsql(connectionString, npgsql => npgsql.MigrationsHistoryTable("__EFMigrationsHistory", "workspaces"))
+            .Options;
+        await using var db = new WorkspacesDbContext(options);
+        await db.Database.MigrateAsync("20261027181228_InitialWorkspaces");
+
+        var id = Guid.NewGuid();
+        var name = "Engineering";
+        var createdAtUtc = DateTimeOffset.UtcNow;
+        await db.Database.ExecuteSqlInterpolatedAsync(
+            $"INSERT INTO workspaces.workspaces (\"Id\", \"Name\", \"CreatedAtUtc\") VALUES ({id}, {name}, {createdAtUtc})");
+
+        await db.Database.MigrateAsync();
+
+        var workspace = await db.Workspaces.AsNoTracking().SingleAsync(item => item.Id == id);
+        Assert.Equal(name, workspace.Name);
+        Assert.Equal(1, workspace.Version);
+    }
+
+    private static async Task AssertValidationProblem(HttpResponseMessage response, string field = "name")
     {
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-        Assert.True(json.RootElement.GetProperty("errors").TryGetProperty("name", out var errors));
+        Assert.True(json.RootElement.GetProperty("errors").TryGetProperty(field, out var errors));
         Assert.NotEmpty(errors.EnumerateArray());
     }
 
-    private sealed record WorkspaceDto(Guid Id, string Name, DateTimeOffset CreatedAtUtc);
+    private sealed record WorkspaceDto(Guid Id, string Name, DateTimeOffset CreatedAtUtc, long Version);
 }
 
 public sealed class PostgresFixture : IAsyncLifetime

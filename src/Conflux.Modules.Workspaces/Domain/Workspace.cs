@@ -11,11 +11,13 @@ public sealed class Workspace
         Id = Guid.NewGuid();
         Name = name;
         CreatedAtUtc = DateTimeOffset.UtcNow;
+        Version = 1;
     }
 
     public Guid Id { get; private set; }
     public string Name { get; private set; } = null!;
     public DateTimeOffset CreatedAtUtc { get; private set; }
+    public long Version { get; private set; }
 
     public static bool TryCreate(string? name, out Workspace? workspace, out string? error)
     {
@@ -40,6 +42,7 @@ public sealed class Workspace
         }
 
         Name = normalizedName!;
+        Version++;
         error = null;
         return true;
     }

@@ -23,11 +23,11 @@ internal static class CreateWorkspace
             db.Workspaces.Add(workspace!);
             await db.SaveChangesAsync(cancellationToken);
 
-            var response = new WorkspaceResponse(workspace!.Id, workspace.Name, workspace.CreatedAtUtc);
+            var response = new WorkspaceResponse(workspace!.Id, workspace.Name, workspace.CreatedAtUtc, workspace.Version);
             return Results.Json(response, statusCode: StatusCodes.Status201Created);
         });
     }
 }
 
 internal sealed record CreateWorkspaceRequest(string? Name);
-internal sealed record WorkspaceResponse(Guid Id, string Name, DateTimeOffset CreatedAtUtc);
+internal sealed record WorkspaceResponse(Guid Id, string Name, DateTimeOffset CreatedAtUtc, long Version);

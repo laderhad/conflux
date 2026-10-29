@@ -16,6 +16,7 @@ public sealed class WorkspaceDomainTests
         Assert.NotEqual(Guid.Empty, workspace.Id);
         Assert.Equal("Engineering", workspace.Name);
         Assert.Equal(TimeSpan.Zero, workspace.CreatedAtUtc.Offset);
+        Assert.Equal(1, workspace.Version);
     }
 
     [Theory]
@@ -68,6 +69,7 @@ public sealed class WorkspaceDomainTests
         Assert.Equal("Platform", workspace.Name);
         Assert.Equal(id, workspace.Id);
         Assert.Equal(createdAtUtc, workspace.CreatedAtUtc);
+        Assert.Equal(2, workspace.Version);
     }
 
     [Theory]
@@ -83,6 +85,7 @@ public sealed class WorkspaceDomainTests
         Assert.False(renamed);
         Assert.False(string.IsNullOrEmpty(error));
         Assert.Equal("Engineering", workspace.Name);
+        Assert.Equal(1, workspace.Version);
     }
 
     [Fact]
@@ -95,5 +98,6 @@ public sealed class WorkspaceDomainTests
         Assert.False(renamed);
         Assert.False(string.IsNullOrEmpty(error));
         Assert.Equal("Engineering", workspace.Name);
+        Assert.Equal(1, workspace.Version);
     }
 }
