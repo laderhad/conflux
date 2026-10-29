@@ -19,6 +19,10 @@ export default function App() {
   const [listError, setListError] = useState('')
   const [formError, setFormError] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [draftName, setDraftName] = useState('')
+  const [editError, setEditError] = useState('')
+  const [renaming, setRenaming] = useState(false)
   const latestListRequest = useRef(0)
 
   async function loadWorkspaces() {
@@ -69,6 +73,32 @@ export default function App() {
     }
   }
 
+  async function renameWorkspace(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (editingId === null) return
+    setEditError('')
+    setRenaming(true)
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/workspaces/${editingId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: draftName }),
+      })
+      if (response.status === 400) {
+        const problem = (await response.json()) as ValidationProblem
+        setEditError(problem.errors?.name?.[0] ?? 'Enter a valid workspace name.')
+        return
+      }
+      if (!response.ok) throw new Error('Could not rename workspace.')
+      setEditingId(null)
+      await loadWorkspaces()
+    } catch {
+      setEditError('Could not rename workspace. Please try again.')
+    } finally {
+      setRenaming(false)
+    }
+  }
+
   return (
     <main className="container">
       <header>
@@ -110,7 +140,32 @@ export default function App() {
           <ul>
             {workspaces.map((workspace) => (
               <li key={workspace.id}>
-                <strong>{workspace.name}</strong>
+                {editingId === workspace.id ? (
+                  <form onSubmit={(event) => void renameWorkspace(event)}>
+                    <label htmlFor={`rename-${workspace.id}`}>Workspace name</label>
+                    <div className="form-row">
+                      <input
+                        id={`rename-${workspace.id}`}
+                        value={draftName}
+                        onChange={(event) => setDraftName(event.target.value)}
+                        maxLength={100}
+                        aria-describedby={editError ? 'rename-error' : undefined}
+                      />
+                      <button disabled={renaming} type="submit">{renaming ? 'Saving…' : 'Save'}</button>
+                      <button disabled={renaming} type="button" onClick={() => setEditingId(null)}>Cancel</button>
+                    </div>
+                    {editError && <p id="rename-error" className="error" role="alert">{editError}</p>}
+                  </form>
+                ) : (
+                  <>
+                    <strong>{workspace.name}</strong>
+                    <button type="button" onClick={() => {
+                      setEditingId(workspace.id)
+                      setDraftName(workspace.name)
+                      setEditError('')
+                    }}>Rename {workspace.name}</button>
+                  </>
+                )}
                 <time dateTime={workspace.createdAtUtc}>
                   {new Date(workspace.createdAtUtc).toLocaleDateString()}
                 </time>

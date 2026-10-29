@@ -1,5 +1,6 @@
 using Conflux.Modules.Workspaces.Features.CreateWorkspace;
 using Conflux.Modules.Workspaces.Features.GetWorkspaces;
+using Conflux.Modules.Workspaces.Features.RenameWorkspace;
 using Conflux.Modules.Workspaces.Persistence;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Routing;
@@ -25,6 +26,7 @@ public static class WorkspacesModule
     {
         endpoints.MapCreateWorkspace();
         endpoints.MapGetWorkspaces();
+        endpoints.MapRenameWorkspace();
         return endpoints;
     }
 }
